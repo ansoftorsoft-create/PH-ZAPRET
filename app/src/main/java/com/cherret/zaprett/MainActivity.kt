@@ -1,0 +1,274 @@
+@file:OptIn(ExperimentalMaterial3ExpressiveApi::class)
+package com.cherret.zaprett
+
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.os.Bundle
+import android.provider.Settings
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
+import androidx.annotation.StringRes
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Lan
+import androidx.compose.material.icons.filled.MultipleStop
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SettingsInputComposite
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.Icon
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
+import androidx.core.content.ContextCompat
+import androidx.core.content.edit
+import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
+import com.cherret.zaprett.data.ServiceType
+import com.cherret.zaprett.ui.screen.DebugScreen
+import com.cherret.zaprett.ui.screen.HomeScreen
+import com.cherret.zaprett.ui.screen.HostsScreen
+import com.cherret.zaprett.ui.screen.IpsetsScreen
+import com.cherret.zaprett.ui.screen.RepoScreen
+import com.cherret.zaprett.ui.screen.SettingsScreen
+import com.cherret.zaprett.ui.screen.StrategyScreen
+import com.cherret.zaprett.ui.screen.StrategySelectionScreen
+import com.cherret.zaprett.ui.theme.ZaprettTheme
+import com.cherret.zaprett.ui.viewmodel.BinRepoViewModel
+import com.cherret.zaprett.ui.viewmodel.HomeViewModel
+import com.cherret.zaprett.ui.viewmodel.HostRepoViewModel
+import com.cherret.zaprett.ui.viewmodel.IpsetRepoViewModel
+import com.cherret.zaprett.ui.viewmodel.LuaLibsRepoViewModel
+import com.cherret.zaprett.ui.viewmodel.StrategyRepoViewModel
+import com.cherret.zaprett.utils.checkModuleInstallation
+import com.cherret.zaprett.utils.checkStoragePermission
+import com.cherret.zaprett.utils.getServiceType
+import com.cherret.zaprett.utils.setServiceType
+import com.google.firebase.Firebase
+import com.google.firebase.analytics.FirebaseAnalytics
+import com.google.firebase.analytics.analytics
+
+sealed class Screen(val route: String, @StringRes val nameResId: Int, val icon: ImageVector) {
+    object home : Screen("home", R.string.title_home, Icons.Default.Home)
+    object hosts : Screen("hosts", R.string.title_hosts, Icons.Default.Lan)
+    object strategies : Screen("strategies", R.string.title_strategies, Icons.Default.MultipleStop)
+    object ipsets : Screen("ipsets", R.string.title_ipset, Icons.Default.SettingsInputComposite)
+    object settings : Screen("settings", R.string.title_settings, Icons.Default.Settings)
+}
+val topLevelRoutes = listOf(Screen.home, Screen.hosts, Screen.strategies, Screen.ipsets, Screen.settings)
+val hideNavBar = listOf("repo?source={source}", "debugScreen", "selectionScreen")
+class MainActivity : ComponentActivity() {
+    private val viewModel: HomeViewModel by viewModels()
+    private lateinit var notificationPermissionLauncher: ActivityResultLauncher<String>
+    private lateinit var firebaseAnalytics: FirebaseAnalytics
+    private lateinit var vpnPermissionLauncher: ActivityResultLauncher<Intent>
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        vpnPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == RESULT_OK) {
+                viewModel.startVpn()
+                viewModel.clearVpnPermissionRequest()
+            }
+        }
+        notificationPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> }
+        firebaseAnalytics = Firebase.analytics
+        enableEdgeToEdge()
+        setContent {
+            ZaprettTheme {
+                val sharedPreferences = remember { getSharedPreferences("settings", MODE_PRIVATE) }
+                LaunchedEffect(Unit) {
+                    if (getServiceType(sharedPreferences) != ServiceType.byedpi) {
+                        checkModuleInstallation { result ->
+                            if ((getServiceType(sharedPreferences) != ServiceType.byedpi) && !result) sharedPreferences.edit {
+                                setServiceType(sharedPreferences, ServiceType.byedpi)
+                            }
+                        }
+                    }
+                }
+                var showStoragePermissionDialog by remember {
+                    mutableStateOf(!checkStoragePermission(this))
+                }
+                var showNotificationPermissionDialog by remember {
+                    mutableStateOf(
+                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                                ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                    )
+                }
+                var showWelcomeDialog by remember { mutableStateOf(sharedPreferences.getBoolean("welcome_dialog", true)) }
+                firebaseAnalytics.setAnalyticsCollectionEnabled(sharedPreferences.getBoolean("send_firebase_analytics", BuildConfig.send_firebase_analytics))
+                BottomBar()
+                if (showStoragePermissionDialog) {
+                    PermissionDialog(
+                        title = stringResource(R.string.error_no_storage_title),
+                        message = stringResource(R.string.error_no_storage_message),
+                        onConfirm = {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
+                                val uri = Uri.fromParts("package", packageName, null)
+                                intent.data = uri
+                                startActivity(intent)
+                            } else {
+                                requestPermissions(
+                                    arrayOf(
+                                        Manifest.permission.READ_EXTERNAL_STORAGE,
+                                        Manifest.permission.WRITE_EXTERNAL_STORAGE
+                                    ),
+                                    100
+                                )
+                            }
+                            showStoragePermissionDialog = false
+                        },
+                        onDismiss = { showStoragePermissionDialog = false }
+                    )
+                }
+
+                if (showNotificationPermissionDialog) {
+                    PermissionDialog(
+                        title = stringResource(R.string.notification_permission_title),
+                        message = stringResource(R.string.notification_permission_message),
+                        onConfirm = {
+                            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                            showNotificationPermissionDialog = false
+                        },
+                        onDismiss = { showNotificationPermissionDialog = false }
+                    )
+                }
+
+                if (showWelcomeDialog) {
+                    WelcomeDialog {
+                        sharedPreferences.edit { putBoolean("welcome_dialog", false) }
+                        showWelcomeDialog = false
+                    }
+                }
+            }
+        }
+    }
+
+
+    @Composable
+    fun BottomBar() {
+        val navController = rememberNavController()
+        Scaffold(
+            bottomBar = {
+                val navBackStackEntry = navController.currentBackStackEntryAsState().value
+                val currentDestination = navBackStackEntry?.destination
+                if (currentDestination?.route !in hideNavBar) {
+                    NavigationBar {
+                        topLevelRoutes.forEach { topLevelRoute ->
+                            NavigationBarItem(
+                                icon = {
+                                    Icon(
+                                        topLevelRoute.icon,
+                                        contentDescription = stringResource(id = topLevelRoute.nameResId)
+                                    )
+                                },
+                                label = { Text(text = stringResource(id = topLevelRoute.nameResId)) }, alwaysShowLabel = false,
+                                selected = currentDestination?.route == topLevelRoute.route,
+                                onClick = {
+                                    navController.navigate(topLevelRoute.route) {
+                                        popUpTo(navController.graph.findStartDestination().id) {
+                                            saveState = true
+                                        }
+                                        launchSingleTop = true
+                                        restoreState = true
+                                    }
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        ) { innerPadding ->
+            NavHost(
+                navController,
+                startDestination = Screen.home.route,
+                Modifier.padding(innerPadding).consumeWindowInsets(innerPadding)
+            ) {
+                composable(Screen.home.route) { HomeScreen(viewModel = viewModel,vpnPermissionLauncher) }
+                composable(Screen.hosts.route) { HostsScreen(navController) }
+                composable(Screen.strategies.route) { StrategyScreen(navController) }
+                composable(Screen.ipsets.route) { IpsetsScreen(navController) }
+                composable(Screen.settings.route) { SettingsScreen(navController) }
+                composable(route = "repo?source={source}",arguments = listOf(navArgument("source") {})) { backStackEntry ->
+                    val source = backStackEntry.arguments?.getString("source")
+                    when (source) {
+                        "hosts" -> {
+                            val viewModel: HostRepoViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+                            RepoScreen(navController, viewModel)
+                        }
+                        "ipsets" -> {
+                            val viewModel: IpsetRepoViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+                            RepoScreen(navController, viewModel)
+                        }
+                        "strategies" -> {
+                            val viewModel: StrategyRepoViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+                            RepoScreen(navController, viewModel)
+                        }
+                        "bin" -> {
+                            val viewModel: BinRepoViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+                            RepoScreen(navController, viewModel)
+                        }
+                        "lua_libs" -> {
+                            val viewModel: LuaLibsRepoViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+                            RepoScreen(navController, viewModel)
+                        }
+                    }
+                }
+                composable("debugScreen") { DebugScreen(navController) }
+                composable("selectionScreen") { StrategySelectionScreen(navController, vpnPermissionLauncher) }
+            }
+        }
+    }
+
+    @Composable
+    fun WelcomeDialog(onDismiss: () -> Unit) {
+        AlertDialog(
+            title = { Text(text = stringResource(R.string.app_name)) },
+            text = { Text(text = stringResource(R.string.text_welcome)) },
+            onDismissRequest = onDismiss,
+            confirmButton = {
+                TextButton(onClick = onDismiss) {
+                    Text(stringResource(R.string.btn_continue))
+                }
+            }
+        )
+    }
+
+    @Composable
+    fun PermissionDialog(title: String, message: String, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+        AlertDialog(
+            title = { Text(title) },
+            text = { Text(message) },
+            onDismissRequest = onDismiss,
+            confirmButton = {
+                TextButton(onClick = onConfirm) {
+                    Text(stringResource(R.string.btn_continue))
+                }
+            }
+        )
+    }
+}

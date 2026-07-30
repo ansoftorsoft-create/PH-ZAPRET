@@ -1,0 +1,283 @@
+package com.cherret.zaprett.ui.viewmodel
+
+import android.app.Application
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
+import android.widget.Toast
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Cancel
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.AndroidViewModel
+import com.cherret.zaprett.BuildConfig
+import com.cherret.zaprett.R
+import com.cherret.zaprett.byedpi.ByeDpiVpnService
+import com.cherret.zaprett.data.ServiceStatus
+import com.cherret.zaprett.data.ServiceStatusUI
+import com.cherret.zaprett.data.ServiceType
+import com.cherret.zaprett.utils.DownloadUtils.download
+import com.cherret.zaprett.utils.DownloadUtils.installApk
+import com.cherret.zaprett.utils.DownloadUtils.registerDownloadListener
+import com.cherret.zaprett.utils.NetworkUtils.getUpdate
+import com.cherret.zaprett.utils.getActiveStrategy
+import com.cherret.zaprett.utils.getModuleVersion
+import com.cherret.zaprett.utils.getNfqws2Version
+import com.cherret.zaprett.utils.getNfqwsVersion
+import com.cherret.zaprett.utils.getServiceType
+import com.cherret.zaprett.utils.getStatus
+import com.cherret.zaprett.utils.restartService
+import com.cherret.zaprett.utils.startService
+import com.cherret.zaprett.utils.stopService
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+
+class HomeViewModel(application: Application) : AndroidViewModel(application) {
+    private val context = application
+    private val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+    private val _requestVpnPermission = MutableStateFlow(false)
+    val requestVpnPermission = _requestVpnPermission.asStateFlow()
+    private val _serviceStatus = MutableStateFlow(ServiceStatusUI())
+    val serviceStatus: StateFlow<ServiceStatusUI> = _serviceStatus.asStateFlow()
+
+    private val _errorFlow = MutableStateFlow("")
+    val errorFlow = _errorFlow.asStateFlow()
+
+    var moduleVer = mutableStateOf(context.getString(R.string.unknown_text))
+        private set
+
+    var nfqwsVer = mutableStateOf(context.getString(R.string.unknown_text))
+        private set
+
+    var nfqws2Ver = mutableStateOf(context.getString(R.string.unknown_text))
+
+    var byedpiVer = mutableStateOf("0.17.3")
+        private set
+
+    var serviceMode = mutableIntStateOf(R.string.service_mode_ciadpi)
+        private set
+
+    var changeLog = mutableStateOf<String?>(null)
+        private set
+
+    var newVersion = mutableStateOf<String?>(null)
+        private set
+
+    var updateAvailable = mutableStateOf(false)
+        private set
+
+    var downloadUrl = mutableStateOf<String?>(null)
+        private set
+
+    var showUpdateDialog = mutableStateOf(false)
+
+    suspend fun checkForUpdate() {
+        if (prefs.getBoolean("auto_update", BuildConfig.auto_update)) {
+            getUpdate(prefs)
+                .onSuccess { updateData ->
+                    if (updateData.updateInfo.versionCode > BuildConfig.VERSION_CODE) {
+                        downloadUrl.value = updateData.updateInfo.downloadUrl
+                        changeLog.value = updateData.changelog
+                        newVersion.value = updateData.updateInfo.version
+                        updateAvailable.value = true
+                    }
+                }
+                .onFailure { exception ->
+                    _errorFlow.value = exception.toString()
+                }
+        }
+    }
+
+    private fun updateServiceStatus(serviceType: ServiceType) {
+        if (serviceType != ServiceType.byedpi) {
+            getStatus { isEnabled ->
+                _serviceStatus.value = if (isEnabled) {
+                    ServiceStatusUI(R.string.status_enabled, Icons.Filled.CheckCircle)
+                } else {
+                    ServiceStatusUI(R.string.status_disabled, Icons.Filled.Cancel)
+                }
+            }
+        } else {
+            _serviceStatus.value = if (ByeDpiVpnService.status == ServiceStatus.Connected) {
+                ServiceStatusUI(R.string.status_enabled, Icons.Filled.CheckCircle)
+            } else {
+                ServiceStatusUI(R.string.status_disabled, Icons.Filled.Cancel)
+            }
+        }
+    }
+
+    fun checkServiceStatus() {
+        val updateOnBoot = prefs.getBoolean("update_on_boot", true)
+        if (updateOnBoot) {
+            val serviceType = getServiceType(prefs)
+            updateServiceStatus(serviceType)
+        }
+    }
+
+    fun onCardClick() {
+        val serviceType = getServiceType(prefs)
+        updateServiceStatus(serviceType)
+    }
+
+    fun startVpn() {
+        ContextCompat.startForegroundService(context, Intent(context, ByeDpiVpnService::class.java).apply { action = "START_VPN" })
+    }
+
+    fun onBtnStartService(snackbarHostState: SnackbarHostState, scope: CoroutineScope) {
+        if (getServiceType(prefs) != ServiceType.byedpi) {
+            getStatus { isEnabled ->
+                scope.launch {
+                    snackbarHostState.showSnackbar(
+                        context.getString(
+                            if (isEnabled) R.string.snack_already_started else R.string.snack_starting_service
+                        )
+                    )
+                }
+                if (!isEnabled) startService { error ->
+                    _errorFlow.value = error
+                    onCardClick()
+                }
+            }
+        } else {
+            if (ByeDpiVpnService.status == ServiceStatus.Disconnected || ByeDpiVpnService.status == ServiceStatus.Failed) {
+                if (getActiveStrategy(prefs).isSuccess) {
+                    scope.launch {
+                        snackbarHostState.showSnackbar(context.getString(R.string.snack_starting_service))
+                    }
+                    _requestVpnPermission.value = true
+                }
+                else {
+                    Toast.makeText(
+                        context,
+                        context.getString(R.string.toast_no_strategy_selected),
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+            else {
+                scope.launch {
+                    snackbarHostState.showSnackbar(context.getString(R.string.snack_already_started))
+                }
+            }
+        }
+    }
+
+    fun clearVpnPermissionRequest() {
+        _requestVpnPermission.value = false
+    }
+
+    fun onBtnStopService(snackbarHostState: SnackbarHostState, scope: CoroutineScope) {
+        if (getServiceType(prefs) != ServiceType.byedpi) {
+            getStatus { isEnabled ->
+                scope.launch {
+                    snackbarHostState.showSnackbar(
+                        context.getString(
+                            if (isEnabled) R.string.snack_stopping_service else R.string.snack_no_service
+                        )
+                    )
+                }
+                if (isEnabled) stopService { error ->
+                    _errorFlow.value = error
+                    onCardClick()
+                }
+            }
+        } else {
+            if (ByeDpiVpnService.status == ServiceStatus.Connected) {
+                scope.launch {
+                    snackbarHostState.showSnackbar(
+                        context.getString(R.string.snack_stopping_service)
+                    )
+                }
+                context.startService(Intent(context, ByeDpiVpnService::class.java).apply {
+                    action = "STOP_VPN"
+                })
+            }
+            else {
+                scope.launch {
+                    snackbarHostState.showSnackbar(context.getString(R.string.snack_no_service))
+                }
+            }
+        }
+    }
+
+    fun onBtnRestart(snackbarHostState: SnackbarHostState, scope: CoroutineScope) {
+        if (getServiceType(prefs) != ServiceType.byedpi) {
+            restartService { error ->
+                _errorFlow.value = error
+                onCardClick()
+            }
+            scope.launch {
+                snackbarHostState.showSnackbar(context.getString(R.string.snack_reload))
+            }
+        } else {
+            scope.launch {
+                snackbarHostState.showSnackbar(context.getString(R.string.snack_module_disabled))
+            }
+        }
+    }
+
+    fun checkModuleInfo() {
+        if (getServiceType(prefs) != ServiceType.byedpi) {
+            getModuleVersion { value ->
+                moduleVer.value = value
+            }
+            getNfqwsVersion { value ->
+                nfqwsVer.value = value
+            }
+            getNfqws2Version { value ->
+                nfqws2Ver.value = value
+            }
+            when(getServiceType(prefs)) {
+                ServiceType.nfqws -> serviceMode.intValue = R.string.service_mode_nfqws
+                ServiceType.nfqws2 -> serviceMode.intValue = R.string.service_mode_nfqws2
+                ServiceType.byedpi -> serviceMode.intValue = R.string.service_mode_ciadpi
+            }
+        }
+    }
+
+    fun showUpdateDialog() {
+        showUpdateDialog.value = true
+    }
+
+    fun dismissUpdateDialog() {
+        showUpdateDialog.value = false
+    }
+
+    fun onUpdateConfirm() {
+        showUpdateDialog.value = false
+        if (context.packageManager.canRequestPackageInstalls()){
+            val id = download(context, downloadUrl.value.orEmpty())
+            registerDownloadListener(context, id, { uri ->
+                installApk(context, uri)
+                },
+                onError = {
+                    _errorFlow.value = it
+                })
+        }
+        else {
+            val packageUri = Uri.fromParts("package", context.packageName, null)
+            val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, packageUri).addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
+        }
+    }
+
+    // unused?
+    fun parseArgs(ip: String, port: String, lines: List<String>): Array<String> {
+        val regex = Regex("""--?\S+(?:=(?:[^"'\s]+|"[^"]*"|'[^']*'))?|[^\s]+""")
+        val parsedArgs = lines
+            .flatMap { line -> regex.findAll(line).map { it.value } }
+        return arrayOf("ciadpi", "--ip", ip, "--port", port) + parsedArgs
+    }
+
+    fun clearError() {
+        _errorFlow.value = ""
+    }
+}

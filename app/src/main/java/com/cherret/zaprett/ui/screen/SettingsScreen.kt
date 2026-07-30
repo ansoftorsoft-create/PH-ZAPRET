@@ -1,0 +1,728 @@
+@file:OptIn(ExperimentalMaterial3ExpressiveApi::class)
+package com.cherret.zaprett.ui.screen
+
+import android.content.Context
+import android.content.Intent
+import android.content.SharedPreferences
+import android.graphics.drawable.Drawable
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AttachMoney
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Card
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.core.content.edit
+import androidx.core.net.toUri
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavController
+import coil3.compose.AsyncImage
+import com.cherret.zaprett.BuildConfig
+import com.cherret.zaprett.R
+import com.cherret.zaprett.data.AppListType
+import com.cherret.zaprett.data.DropdownItem
+import com.cherret.zaprett.data.ServiceType
+import com.cherret.zaprett.data.Setting
+import com.cherret.zaprett.ui.component.InfoDialog
+import com.cherret.zaprett.ui.component.SettingDropDown
+import com.cherret.zaprett.ui.component.SettingsActionItem
+import com.cherret.zaprett.ui.component.SettingsItem
+import com.cherret.zaprett.ui.component.SettingsSection
+import com.cherret.zaprett.ui.component.TextDialog
+import com.cherret.zaprett.ui.viewmodel.SettingsViewModel
+import com.cherret.zaprett.utils.getAppsListMode
+import com.cherret.zaprett.utils.setAppsListMode
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SettingsScreen(navController: NavController, viewModel : SettingsViewModel = viewModel()) {
+    val context = LocalContext.current
+    val sharedPreferences = remember { context.getSharedPreferences("settings", Context.MODE_PRIVATE) }
+    val editor = remember { sharedPreferences.edit() }
+    val serviceType = viewModel.serviceType.collectAsState()
+    val updateOnBoot = remember { mutableStateOf(sharedPreferences.getBoolean("update_on_boot", true)) }
+    val autoRestart = viewModel.autoRestart.collectAsState()
+    val autoUpdate = remember { mutableStateOf(sharedPreferences.getBoolean("auto_update", BuildConfig.auto_update)) }
+    val sendFirebaseAnalytics = remember { mutableStateOf(sharedPreferences.getBoolean("send_firebase_analytics", BuildConfig.send_firebase_analytics)) }
+    val ipv6 = remember { mutableStateOf(sharedPreferences.getBoolean("ipv6",false)) }
+    val openNoRootDialog = remember { mutableStateOf(false) }
+    val openNoModuleDialog = remember { mutableStateOf(false) }
+    val showAboutDialog = remember { mutableStateOf(false) }
+    val showRepoUrlDialog = remember { mutableStateOf(false) }
+    val showIPDialog = remember { mutableStateOf(false) }
+    val showPortDialog = remember { mutableStateOf(false) }
+    val showDNSDialog = remember { mutableStateOf(false) }
+    val textDialogValue = remember { mutableStateOf("") }
+    val showWhiteDialog = remember { mutableStateOf(false) }
+    val showBlackDialog = remember { mutableStateOf(false) }
+    val showAppsListsSheet = remember { mutableStateOf(false) }
+    val showSystemApps = remember { mutableStateOf(sharedPreferences.getBoolean("show_system_apps", false)) }
+    val showChangeProbeTimeout = remember { mutableStateOf(false) }
+
+    val settingsList = listOf(
+        Setting.Section(stringResource(R.string.general_section)),
+        Setting.Dropdown(
+            title = stringResource(R.string.btn_use_root),
+            selected = serviceType.value.name,
+            items = listOf(
+                DropdownItem(
+                    title = stringResource(R.string.service_mode_ciadpi),
+                    onClick = {
+                        viewModel.changeServiceType(
+                            context = context,
+                            serviceType = ServiceType.byedpi,
+                            openNoRootDialog = openNoRootDialog,
+                            openNoModuleDialog = openNoRootDialog
+                        )
+                    }
+                ),
+                DropdownItem(
+                    title = stringResource(R.string.service_mode_nfqws),
+                    onClick = {
+                        viewModel.changeServiceType(
+                            context = context,
+                            serviceType = ServiceType.nfqws,
+                            openNoRootDialog = openNoRootDialog,
+                            openNoModuleDialog = openNoRootDialog
+                        )
+                    }
+                ),
+                DropdownItem(
+                    title = stringResource(R.string.service_mode_nfqws2),
+                    onClick = {
+                        viewModel.changeServiceType(
+                            context = context,
+                            serviceType = ServiceType.nfqws2,
+                            openNoRootDialog = openNoRootDialog,
+                            openNoModuleDialog = openNoRootDialog
+                        )
+                    }
+                )
+            )
+        ),
+        Setting.Toggle(
+            title = stringResource(R.string.btn_update_on_boot),
+            checked = updateOnBoot.value,
+            onToggle = {
+                updateOnBoot.value = it
+                editor.putBoolean("update_on_boot", it).apply()
+            }
+        ),
+        Setting.Toggle(
+            title = stringResource(R.string.btn_autoupdate),
+            checked = autoUpdate.value,
+            onToggle = {
+                autoUpdate.value = it
+                editor.putBoolean("auto_update", it).apply()
+            }
+        ),
+        Setting.Toggle(
+            title = stringResource(R.string.btn_send_firebase_analytics),
+            checked = sendFirebaseAnalytics.value,
+            onToggle = {
+                sendFirebaseAnalytics.value = it
+                editor.putBoolean("send_firebase_analytics", it).apply()
+            }
+        ),
+        Setting.Action(
+            title = stringResource(R.string.btn_repository_url),
+            onClick = {
+                textDialogValue.value = sharedPreferences.getString("repo_url", "https://raw.githubusercontent.com/CherretGit/zaprett-repo/refs/heads/main/index.json") ?: "https://raw.githubusercontent.com/CherretGit/zaprett-repo/refs/heads/main/index.json"
+                showRepoUrlDialog.value = true
+            }
+        ),
+        Setting.Section(title = stringResource(R.string.shared_section)),
+        Setting.Action(
+            title = stringResource(R.string.btn_applist),
+            onClick = {
+                showAppsListsSheet.value = true
+            }
+        ),
+        Setting.Action(
+            title = stringResource(R.string.btn_whitelist),
+            onClick = {
+                showWhiteDialog.value = true
+            }
+        ),
+        Setting.Action(
+            title = stringResource(R.string.btn_blacklist),
+            onClick = {
+                showBlackDialog.value = true
+            }
+        ),
+        Setting.Section(stringResource(R.string.title_selection)),
+        Setting.Action(
+            title = stringResource(R.string.begin_selection),
+            onClick = {
+                navController.navigate("selectionScreen")
+            }
+        ),
+        Setting.Action(
+            title = stringResource(R.string.change_probe_timeout),
+            onClick = {
+                textDialogValue.value = sharedPreferences.getLong("probe_timeout", 1000L).toString()
+                showChangeProbeTimeout.value = true
+            }
+        ),
+        Setting.Section(stringResource(R.string.byedpi_section)),
+        Setting.Toggle(
+            title = stringResource(R.string.btn_ipv6),
+            checked = ipv6.value,
+            onToggle = {
+                ipv6.value = it
+                editor.putBoolean("ipv6", it).apply()
+            }
+        ),
+        Setting.Action(
+            title = stringResource(R.string.btn_ip),
+            onClick = {
+                textDialogValue.value = sharedPreferences.getString("ip", "127.0.0.1") ?: "127.0.0.1"
+                showIPDialog.value = true
+            }
+        ),
+        Setting.Action(
+            title = stringResource(R.string.btn_port),
+            onClick = {
+                textDialogValue.value = sharedPreferences.getString("port", "1080") ?: "1080"
+                showPortDialog.value = true
+            }
+        ),
+        Setting.Action(
+            title = stringResource(R.string.btn_dns),
+            onClick = {
+                textDialogValue.value = sharedPreferences.getString("dns", "8.8.8.8") ?: "8.8.8.8"
+                showDNSDialog.value = true
+            }
+        ),
+        Setting.Section(title = stringResource(R.string.zapret_section)),
+        Setting.Toggle(
+            title = stringResource(R.string.btn_autorestart),
+            checked = autoRestart.value,
+            onToggle = {
+                viewModel.handleAutoRestart(context)
+            }
+        ),
+        Setting.Action(
+            title = stringResource(R.string.bins_repo),
+            onClick = {
+                navController.navigate("repo?source=bin") { launchSingleTop = true }
+            }
+        ),
+        Setting.Action(
+            title = stringResource(R.string.lua_libs_repo),
+            onClick = {
+                navController.navigate("repo?source=lua_libs") { launchSingleTop = true }
+            }
+        )
+    )
+
+    if (openNoRootDialog.value) {
+        InfoDialog(
+            title = stringResource(R.string.error_root_title),
+            message = stringResource(R.string.error_root_message),
+            onDismiss = { openNoRootDialog.value = false }
+        )
+    }
+
+    if (openNoModuleDialog.value) {
+        InfoDialog(
+            title = stringResource(R.string.error_no_module_title),
+            message = stringResource(R.string.error_no_module_message),
+            onDismiss = { openNoModuleDialog.value = false }
+        )
+    }
+
+    if (showAboutDialog.value) {
+        AboutDialog(navController, onDismiss = { showAboutDialog.value = false })
+    }
+
+    if (showRepoUrlDialog.value) {
+        TextDialog(stringResource(R.string.btn_repository_url), stringResource(R.string.hint_enter_repository_url), textDialogValue.value, onConfirm = {
+            editor.putString("repo_url", it).apply()
+        }, onDismiss = { showRepoUrlDialog.value = false })
+    }
+
+    if (showIPDialog.value) {
+        TextDialog(stringResource(R.string.btn_ip), stringResource(R.string.hint_ip), textDialogValue.value, onConfirm = {
+            editor.putString("ip", it).apply()
+        }, onDismiss = { showIPDialog.value = false })
+    }
+
+    if (showPortDialog.value) {
+        TextDialog(stringResource(R.string.btn_port), stringResource(R.string.hint_port), textDialogValue.value, onConfirm = {
+            editor.putString("port", it).apply()
+        }, onDismiss = { showPortDialog.value = false })
+    }
+
+    if (showDNSDialog.value) {
+        TextDialog(stringResource(R.string.btn_dns), stringResource(R.string.hint_dns), textDialogValue.value, onConfirm = {
+            editor.putString("dns", it).apply()
+        }, onDismiss = { showDNSDialog.value = false })
+    }
+
+    if (showWhiteDialog.value) {
+        ChooseAppsDialog(
+            onDismissRequest = {
+                showWhiteDialog.value = false
+                viewModel.clearList()
+            },
+            viewModel = viewModel,
+            listType = AppListType.Whitelist,
+            sharedPreferences,
+            showSystemApps
+        )
+    }
+
+    if (showBlackDialog.value) {
+        ChooseAppsDialog(
+            onDismissRequest = {
+                showBlackDialog.value = false
+                viewModel.clearList()
+            },
+            viewModel = viewModel,
+            listType = AppListType.Blacklist,
+            sharedPreferences,
+            showSystemApps
+        )
+    }
+
+    if (showAppsListsSheet.value) {
+        ListBottomSheet(
+            onDismissRequest = {
+                showAppsListsSheet.value = false
+            },
+            prefs = sharedPreferences,
+            context
+        )
+    }
+
+    if (showChangeProbeTimeout.value) {
+        TextDialog(stringResource(R.string.probe_timeout), stringResource(R.string.hint_enter_probe_timeout), textDialogValue.value, onConfirm = {
+            editor.putLong("probe_timeout", it.toLong()).apply()
+        }, onDismiss = { showChangeProbeTimeout.value = false })
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    Text(
+                        text = stringResource(R.string.title_settings),
+                        fontSize = 40.sp,
+                        fontFamily = FontFamily(Font(R.font.unbounded, FontWeight.Normal))
+                    )
+                },
+                actions = {
+                    var expanded by remember { mutableStateOf(false) }
+                    IconButton(onClick = { expanded = !expanded }) {
+                        Icon(Icons.Default.MoreVert, contentDescription = null)
+                    }
+                    DropdownMenu(
+                        expanded = expanded,
+                        onDismissRequest = { expanded = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.about_title)) },
+                            onClick = {
+                                expanded = false
+                                showAboutDialog.value = true
+                            }
+                        )
+                    }
+                },
+                windowInsets = WindowInsets(0)
+            )
+        },
+        content = { paddingValues ->
+            LazyColumn(
+                modifier = Modifier
+                    .padding(paddingValues)
+                    .fillMaxSize(),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 25.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(settingsList) { setting ->
+                    when (setting) {
+                        is Setting.Toggle -> {
+                            SettingsItem(
+                                title = setting.title,
+                                onToggle = setting.onToggle,
+                                checked = setting.checked,
+                                onCheckedChange = setting.onToggle
+                            )
+                        }
+                        is Setting.Action -> {
+                            SettingsActionItem(
+                                title = setting.title,
+                                setting.onClick
+                            )
+                        }
+                        is Setting.Dropdown -> {
+                            SettingDropDown(
+                                title = setting.title,
+                                selected = setting.selected,
+                                items = setting.items
+                            )
+                        }
+                        is Setting.Section -> {
+                            SettingsSection(setting.title)
+                        }
+                    }
+                }
+            }
+        }
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ListBottomSheet(
+    onDismissRequest: () -> Unit,
+    prefs : SharedPreferences,
+    context: Context
+){
+    val selectedOption = remember { mutableStateOf(getAppsListMode(prefs)) }
+    ModalBottomSheet(
+        onDismissRequest = { onDismissRequest() }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(200.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(8.dp)
+                    .selectable(
+                        selected = selectedOption.value=="none",
+                        onClick = {
+                            setAppsListMode(prefs, "none")
+                            selectedOption.value = "none"
+                        },
+                        role = Role.RadioButton
+                    ),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                RadioButton(
+                    selected = selectedOption.value.equals("none"),
+                    onClick = null
+                )
+                Text(stringResource(R.string.radio_disabed), modifier = Modifier.padding(start = 8.dp))
+            }
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(8.dp)
+                    .selectable(
+                        selected = selectedOption.value=="whitelist",
+                        onClick = {
+                            setAppsListMode(prefs, "whitelist")
+                            selectedOption.value = "whitelist"
+                        },
+                        role = Role.RadioButton
+                    ),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                RadioButton(
+                    selected = selectedOption.value.equals("whitelist"),
+                    onClick = null
+                )
+                Text(stringResource(R.string.title_whitelist), modifier = Modifier.padding(start = 8.dp))
+            }
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(8.dp)
+                    .selectable(
+                        selected = selectedOption.value=="blacklist",
+                        onClick = {
+                            setAppsListMode(prefs, "blacklist")
+                            selectedOption.value = "blacklist"
+                        },
+                        role = Role.RadioButton
+                    ),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                RadioButton(
+                    selected = selectedOption.value.equals("blacklist"),
+                    onClick = null
+                )
+                Text(stringResource(R.string.title_blacklist), modifier = Modifier.padding(start = 8.dp))
+            }
+        }
+    }
+}
+
+
+
+@Composable
+private fun AboutDialog(navController: NavController, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val interactionSource = remember { MutableInteractionSource() }
+    var clickCount by remember { mutableIntStateOf(0) }
+    AlertDialog(
+        title = { Text(text = stringResource(R.string.about_title)) },
+        icon = {Icon(painterResource(R.drawable.ic_launcher_monochrome), contentDescription = stringResource(R.string.app_name), modifier = Modifier
+            .size(64.dp))},
+        text = {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(text = stringResource(R.string.about_text, BuildConfig.VERSION_NAME), modifier = Modifier.clickable(interactionSource = interactionSource, null) {
+                    clickCount++
+                    if (clickCount == 7) {
+                        onDismiss()
+                        navController.navigate("debugScreen") { launchSingleTop = true }
+                    }
+                })
+                Row(
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    IconButton(onClick = {
+                        val intent = Intent(Intent.ACTION_VIEW,
+                            "https://github.com/CherretGit/zaprett-app".toUri())
+                        context.startActivity(intent)
+                    }) {
+                        Icon(painterResource(R.drawable.github), "GitHub")
+                    }
+                    IconButton(onClick = {
+                        val intent = Intent(Intent.ACTION_VIEW,
+                            "https://t.me/zaprett_module".toUri())
+                        context.startActivity(intent)
+                    }) {
+                        Icon(painterResource(R.drawable.telegram), "Telegram")
+                    }
+                    IconButton(onClick = {
+                        val intent = Intent(Intent.ACTION_VIEW,
+                            "https://matrix.to/#/#zaprett-space:matrix.cherret.ru".toUri())
+                        context.startActivity(intent)
+                    }) {
+                        Icon(painterResource(R.drawable.matrix), "Matrix")
+                    }
+                    IconButton(onClick = {
+                        val intent = Intent(Intent.ACTION_VIEW,
+                            "https://dalink.to/zaprett_app".toUri())
+                        context.startActivity(intent)
+                    }) {
+                        Icon(Icons.Default.AttachMoney, "Donate")
+                    }
+                }
+            }
+        },
+        onDismissRequest = onDismiss,
+        confirmButton = { }
+    )
+}
+
+@Composable
+private fun ChooseAppsDialog(
+    onDismissRequest: () -> Unit,
+    viewModel: SettingsViewModel,
+    listType: AppListType,
+    prefs: SharedPreferences,
+    showSystemApps : MutableState<Boolean>
+) {
+    val appsList by viewModel.appsList.collectAsState()
+    val selectedPackages by viewModel.selectedPackages.collectAsState()
+    var searchQuery by remember { mutableStateOf("") }
+    val filteredList = remember(searchQuery, appsList) {
+        if (searchQuery.isBlank()) appsList
+        else appsList.filter { it.contains(searchQuery, ignoreCase = true) }
+    }
+    var expanded by remember { mutableStateOf(false) }
+    val title = if (listType == AppListType.Whitelist) stringResource(R.string.title_whitelist) else stringResource(R.string.title_blacklist)
+    LaunchedEffect(listType) {
+        viewModel.setListType(listType)
+    }
+    Dialog(onDismissRequest = onDismissRequest) {
+        Card(
+            modifier = Modifier
+                .wrapContentHeight()
+                .padding(16.dp),
+            shape = RoundedCornerShape(16.dp),
+        ) {
+            Column(
+                modifier = Modifier
+                    .wrapContentHeight()
+                    .fillMaxWidth()) {
+                Row(modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = title,
+                        modifier = Modifier.weight(1f),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 24.sp
+                    )
+                    Box {
+                        IconButton(onClick = { expanded = !expanded }) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "More options")
+                        }
+                        DropdownMenu(
+                            expanded = expanded,
+                            onDismissRequest = { expanded = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = stringResource(R.string.btn_show_system_apps),
+                                            fontSize = 12.sp,
+                                            textAlign = TextAlign.Center
+                                        )
+                                        Checkbox(
+                                            checked = showSystemApps.value,
+                                            onCheckedChange = null
+                                        )
+                                    }
+                                },
+                                onClick = {
+                                    prefs.edit { putBoolean("show_system_apps", !showSystemApps.value) }
+                                    showSystemApps.value = !showSystemApps.value
+                                    viewModel.refreshApplications()
+                                    expanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+                Row {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        placeholder = { Text(stringResource(R.string.search_field)) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(8.dp)
+                    )
+                }
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 400.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    items(filteredList) {
+                        AppItem(viewModel(), it, selectedPackages.contains(it), { isChecked ->
+                            if (isChecked){ viewModel.addToList(listType, it) }
+                            else { viewModel.removeFromList(listType, it) }
+                            }
+                        )
+                    }
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp, end = 8.dp),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(
+                        onClick = { onDismissRequest() },
+                        modifier = Modifier.padding(8.dp, top = 4.dp),
+                    ) {
+                        Text(text = stringResource(R.string.btn_continue))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AppItem(viewModel: SettingsViewModel, packageName : String, enabled : Boolean, onCheckedChange: (Boolean) -> Unit) {
+    var bitmap by remember { mutableStateOf<Drawable?>(null) }
+    LaunchedEffect(packageName) {
+        bitmap = viewModel.getAppIconBitmap(packageName)
+    }
+    Row (
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(48.dp)
+            .padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        AsyncImage(
+            model = bitmap,
+            contentDescription = null,
+            modifier = Modifier
+                .padding(4.dp)
+        )
+        Text(
+            text = viewModel.getApplicationName(packageName) ?: "unknown",
+            modifier = Modifier
+                .weight(1f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            fontSize = 18.sp
+        )
+        Switch(
+                checked = enabled,
+                onCheckedChange = onCheckedChange
+        )
+    }
+}
