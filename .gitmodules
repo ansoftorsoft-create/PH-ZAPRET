@@ -4,3 +4,6 @@
 [submodule "app/src/main/jni/hev-socks5-tunnel"]
 	path = app/src/main/jni/hev-socks5-tunnel
 	url = https://github.com/heiher/hev-socks5-tunnel
+[submodule "rust/zapret"]
+	path = rust/zapret
+	url = https://github.com/bol-van/zapret.git

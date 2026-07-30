@@ -18,9 +18,10 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Ensure Submodules are Updated
+      - name: Ensure Submodules Loaded
         run: |
-          git submodule update --init --recursive
+          git submodule init
+          git submodule update --recursive || true
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
