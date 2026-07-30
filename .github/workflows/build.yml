@@ -19,18 +19,15 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Grant Execute Permission for Gradlew
+      - name: Grant Execute Permission for Gradle
         run: chmod +x gradlew
 
-      - name: Build APK with Gradle
-        run: ./gradlew assembleRelease --no-daemon || ./gradlew assembleDebug --no-daemon
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug --no-daemon
 
       - name: Release APK
         uses: softprops/action-gh-release@v1
         with:
-          files: |
-            app/build/outputs/apk/release/*.apk
-            app/build/outputs/apk/debug/*.apk
+          files: app/build/outputs/apk/debug/*.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
